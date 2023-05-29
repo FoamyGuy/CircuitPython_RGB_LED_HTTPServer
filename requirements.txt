@@ -5,3 +5,5 @@
 
 Adafruit-Blinka
 adafruit-circuitpython-httpserver
+adafruit-circuitpython-neopixel
+adafruit-circuitpython-dotstar

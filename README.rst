@@ -39,10 +39,6 @@ or individual libraries can be installed using
 
 Installing from PyPI
 =====================
-.. note:: This library is not available on PyPI yet. Install documentation is included
-   as a standard element. Stay tuned for PyPI availability!
-
-.. todo:: Remove the above note if PyPI version is/will be available at time of release.
 
 On supported GNU/Linux systems like the Raspberry Pi, you can install the driver locally `from
 PyPI <https://pypi.org/project/circuitpython-rgb-led-httpserver/>`_.
@@ -93,8 +89,15 @@ Or the following command to update an existing version:
 Usage Example
 =============
 
-.. todo:: Add a quick, simple example. It and other examples should live in the
-examples folder and be included in docs/examples.rst.
+.. code-block:: python
+
+    from rgb_server import RGBLedServer
+
+    server_process = RGBLedServer()
+
+    while True:
+        server_process.animate()
+        server_process.poll()
 
 Documentation
 =============

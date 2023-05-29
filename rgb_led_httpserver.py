@@ -16,35 +16,37 @@ Implementation Notes
 
 **Hardware:**
 
-.. todo:: Add links to any specific hardware product page(s), or category page(s).
-  Use unordered list & hyperlink rST inline format: "* `Link Text <url>`_"
+  * `NeoPixels <https://www.adafruit.com/category/168>`_
+  * `DotStars <https://www.adafruit.com/search?q=DotStars>`_
+  * `ESP32 S2 Based MCUs <https://www.adafruit.com/search?q=ESP32-S2>`_
+  * `ESP32 S3 Based MCUs <https://www.adafruit.com/search?q=ESP32-S3>`_
+  * `Raspberry Pi PicoW <https://www.adafruit.com/product/5526>`_
+
 
 **Software and Dependencies:**
 
 * Adafruit CircuitPython firmware for the supported boards:
   https://circuitpython.org/downloads
 
-.. todo:: Uncomment or remove the Bus Device and/or the Register library dependencies
-  based on the library's use of either.
 
-# * Adafruit's Bus Device library: https://github.com/adafruit/Adafruit_CircuitPython_BusDevice
-# * Adafruit's Register library: https://github.com/adafruit/Adafruit_CircuitPython_Register
 """
 
-import json
 import os
-import time
 import board
 import neopixel
 import adafruit_dotstar as dotstar
 import socketpool
 import wifi
-from adafruit_httpserver import Server, Request, Response, JSONResponse, POST, BAD_REQUEST_400, DELETE, GET, Bearer
+from adafruit_httpserver import (
+    Server,
+    Request,
+    JSONResponse,
+    POST,
+    BAD_REQUEST_400,
+    GET,
+)
 from adafruit_httpserver.authentication import (
-    AuthenticationError,
-    Basic,
     Bearer,
-    check_authentication,
     require_authentication,
 )
 
@@ -60,53 +62,448 @@ ANIMATION_CLASSES = {
     "blink": ("adafruit_led_animation.animation.blink", "Blink"),
     "colorcycle": ("adafruit_led_animation.animation.colorcycle", "ColorCycle"),
     "comet": ("adafruit_led_animation.animation.comet", "Comet"),
-    "rainbow": ("adafruit_led_animation.animation.rainbow", "Rainbow")
+    "rainbow": ("adafruit_led_animation.animation.rainbow", "Rainbow"),
 }
 
 
+def rgb_to_hex(tuple_color: Tuple[int, int, int]) -> int:
+    """
+    Convert tuple RGB color to hex int i.e. (255, 0, 0) -> 0xff0000
+    :param tuple_color: The color to convert as a tuple with 0-255 ints
+    for each color channel.
+
+    :return: The numerical value equal to hex color.
+    """
+    return (
+        (int(tuple_color[0]) << 16) + (int(tuple_color[1]) << 8) + int(tuple_color[2])
+    )
+
+
+def convert_color_to_num(color_str: Union[str, int, Tuple[int, int, int]]):
+    """
+    Convert an RGB tuple, or string in the hex forms of 0x00ff00 or #ff00ff into a number.
+
+    :param color_str:  hex color with 0x or # prefix
+    :return int: the color as a number
+    """
+    if isinstance(color_str, int):
+        # if it's already a number just return it
+        return color_str
+    if isinstance(color_str, str):
+        if color_str.startswith("#"):
+            _cur_value = color_str.replace("#", "0x")
+        return int(color_str, 0)
+    if isinstance(color_str, (list)):
+        return color_str
+
+    raise ValueError("Invalid input for 'color_str'")
+
+
+def import_animation_contructor(anim):
+    """
+    Imports a given animation class and returns the constructor function
+    that can be used to create an instance of it.
+
+    :param anim: shorthand animation name key. See ANIMATION_CLASSES.keys()
+      for valid values
+    :return: None
+    """
+    if anim not in ANIMATION_CLASSES:
+        return None
+
+    base_module = __import__(ANIMATION_CLASSES[anim][0])
+    anim_submodule = getattr(base_module, "animation")
+    specific_anim_module = getattr(anim_submodule, anim)
+    constructor = getattr(specific_anim_module, ANIMATION_CLASSES[anim][1])
+    return constructor
+
+
 class RGBLedServer:
+    """
+    Non-Blocking HTTP server that implements a JSON based API for controlling NeoPixels, WS2812, or DotStar RGB LEDs.
 
-    def rgb_to_hex(self, tuple_color: Tuple[int, int, int]) -> int:
-        """
-        Convert tuple RGB color to hex int i.e. (255, 0, 0) -> 0xff0000
-        :param tuple_color: The color to convert as a tuple with 0-255 ints
-        for each color channel.
+    :param request: Request object
+    :return: JSONResponse
 
-        :return: The numerical value equal to hex color.
-        """
-        return (
-                (int(tuple_color[0]) << 16) + (int(tuple_color[1]) << 8) + int(tuple_color[2])
-        )
+    General API Information:
+    ************************
 
-    def convert_color_to_num(self, color_str: Union[str, int, Tuple[int, int, int]]):
-        """
-        Convert an RGB tuple, or string in the hex forms of 0x00ff00 or #ff00ff into a number.
+    Terminology:
+    ############
 
-        :param color_str:  hex color with 0x or # prefix
-        :return int: the color as a number
-        """
-        if isinstance(color_str, int):
-            # if it's already a number just return it
-            return color_str
-        elif isinstance(color_str, str):
-            if color_str.startswith("#"):
-                _cur_value = color_str.replace("#", "0x")
-            return int(color_str, 0)
-        elif isinstance(color_str, (list)):
-            return color_str
+    ``pixel``: A single RGB capable LED. The term is used independently of the actual protocol being used to communicate with the LED. A single LED in a Neopixel strip, and a single LED in a DotStar strip are considered to be a ``pixel`` under this definition.
 
-    def import_animation_contructor(self, anim):
-        if anim not in ANIMATION_CLASSES.keys():
-            return None
+    ``strip``: One or more ``pixels`` connected in series. The term is used independently of the protocol used. Both Neopixels and DotStars are considered ``strips``
 
-        base_module = __import__(ANIMATION_CLASSES[anim][0])
-        anim_submodule = getattr(base_module, "animation")
-        specific_anim_module = getattr(anim_submodule, anim)
-        constructor = getattr(specific_anim_module, ANIMATION_CLASSES[anim][1])
-        return constructor
+    ``strip_id``: A unique string that represents an initialized strip. Can be supplied by the user, or generated by default from pin names.
 
+    Request Body:
+    #############
+
+    All POST requests should send a response body containing a valid JSON encoded
+    string.
+
+    Response Body:
+    ##############
+
+    All requests will be responded to with a response body containing a valid JSON encoded
+    string. The ``success`` field will have a boolean value indicating success of the operation.
+    Other fields are included as needed by specific endpoints.
+
+    Valid Color Formats:
+    ####################
+
+    For all endpoints that take argument(s) representing colors there are two valid
+    value formats:
+
+    * str containing hex notation prepended with "0x" example: ``"0x00ff00"``
+    * list containing 3 or 4 ints 0-255 representing RGB color values. example: ``[255, 0, 255]``
+
+    Authentication (Optional)
+    #########################
+
+    To enable token based authentication add a value ``HTTP_RGB_BEARER_AUTH`` inside of your settings.toml file.
+    The value should be a token string. If this configuration is present then all
+    HTTP endpoints will require this token to be passed in the Authentication header.
+
+    Example settings.toml config::
+
+        HTTP_RGB_BEARER_AUTH="cIgw2mX7Ditmxu2i8kD0EaeARLbsKnPmAwbxDc7gWDk"
+
+    Example Request Auth Header::
+
+        Authorization: Bearer cIgw2mX7Ditmxu2i8kD0EaeARLbsKnPmAwbxDc7gWDk
+
+    Un-authorized requests will be returned ``401 Unauthorized`` responses.
+
+    HTTP API Endpoints:
+    *******************
+
+    Initialize Neopixels:
+    #####################
+
+    URL: ``/init/neopixels/``
+
+    Method(s): POST
+
+    Details: Initialize a strip of Neopixels with 1 or more pixels on it.
+
+    **************
+    Required Args:
+    **************
+
+    :pin: str | The pin name that the strip is connected to
+        as it appears on the `board` object.
+    :pixel_count: int | The number of LEDs in the strip.
+
+    **************
+    Optional Args:
+    **************
+
+    :parameter id: str | The ID to be used to refer to the initialized strip
+        with requests in the future.
+    :parameter kwargs: dict | Dictionary of keyword arguments to pass along
+      to the Neopixel class constructor. Commonly used kwargs include: brightness,
+      bpp, auto_write. See Neopixel library for comprehensive list.
+
+    *********************
+    Return Object Fields:
+    *********************
+
+        :success: bool | Whether the strip was initialized successfully.
+        :strip_id: str | The ``strip_id`` that was assigned to the strip if it was
+            successfully initialized. This will be the value of the ``id`` argument
+            if it was passed, or a default strip_id generated from the pins used
+            if ``id`` was not passed.
+
+
+
+    Example Request Data Body::
+
+        {
+          "pin" : "NEOPIXEL",
+          "pixel_count": 1,
+          "kwargs":{
+            "brightness": 0.01,
+            "bpp": 3,
+            "auto_write": true
+          }
+        }
+
+    Example Successful Response(s)::
+
+        {
+          "success": true,
+          "strip_id": "NEOPIXEL"
+        }
+
+    Example Error Response(s)::
+
+        {
+          "success": false,
+          "error": "Invalid Pin: NOT_NEOPIXEL"
+        }
+
+    Initialize Dotsars:
+    #####################
+
+    URL: ``/init/dotstars/``
+
+    Method(s): POST
+
+    Details: Initialize a strip of DotStars with 1 or more pixels on it.
+
+    **************
+    Required Args:
+    **************
+
+    :data_pin: str | The data pin name that the strip is connected to
+        as it appears on the `board` object.
+    :clock_pin: str | The clock pin name that the strip is connected to
+        as it appears on the `board` object.
+    :pixel_count: int | The number of LEDs in the strip.
+
+    **************
+    Optional Args:
+    **************
+
+    :parameter id: str | The ID to be used to refer to the initialized strip
+        with requests in the future.
+    :parameter kwargs: dict | Dictionary of keyword arguments to pass along
+        to the DotStar class constructor. Commonly used kwargs include: brightness,
+        bpp, auto_write. See Neopixel library for comprehensive list.
+
+    *********************
+    Return Object Fields:
+    *********************
+
+    :success: bool | Whether the strip was initialized successfully.
+    :strip_id: str | The ``strip_id`` that was assigned to the strip if it was
+        successfully initialized. This will be the value of the ``id`` argument
+        if it was passed, or a default strip_id generated from the pins used
+        if ``id`` was not passed.
+
+    Example Request Data Body::
+
+        {
+          "clock_pin" : "D9",
+          "data_pin" : "MOSI",
+          "pixel_count": 30,
+          "kwargs":{
+            "brightness": 0.1,
+            "auto_write": true
+          }
+        }
+
+    Example Successful Response(s)::
+
+        {
+          "success": true,
+          "strip_id": "D9MOSI"
+        }
+
+    Example Error Response(s)::
+
+        {
+          "success": false,
+          "error": "Invalid Pin: MOSI"
+        }
+
+    GET or SET Pixels:
+    ##################
+
+    URL: ``/pixels/<strip_id>/``
+
+    Method(s): GET, POST
+
+    Details: Get or set the color of pixels within a strip. If the pixels are being set
+    and the strip is currently in animation mode, it will be switched back to
+    pixels mode.
+
+    ***************
+    Path Arguments:
+    ***************
+
+    :strip_id: str | The strip_id that was assigned when the strip was initialized.
+
+    ***********************
+    Required Args for POST:
+    ***********************
+
+    :pixels: Union[dict, list] | A dictionary with pixel indexes as keys
+        and colors as values. Or a list containing color values where index within
+        the list will map to index within the strip.
+
+    **************
+    Optional Args:
+    **************
+
+    :blank_pixels: bool | Whether to clear the pixels to blank before setting
+        the given new colors.
+
+    *********************
+    Return Object Fields:
+    *********************
+
+    :success: bool | Whether the strip was initialized successfully.
+
+    Example Request Data Body::
+
+        {
+          "blank_pixels": true,
+          "pixels": {
+            "12": "0xff0000",
+            "13": "0x00ff00"
+            "17": "0xff00ff"
+          }
+        }
+
+    Example Successful Response(s)::
+
+        {
+          "success": true
+        }
+
+    Example Error Response(s)::
+
+        {
+          "success": false,
+          "error": "Pixels must be list or dictionary"
+        }
+
+    Write:
+    ######
+
+    URL: ``/write/<strip_id>/``
+
+    Method(s): POST
+
+    Details: Call ``write()`` on the specified strip. Generally only needed if ``auto_write`` is ``False`` on the strip. This will write any pending color change operations to the strip.
+
+    ***************
+    Path Arguments:
+    ***************
+
+    :strip_id: str | The strip_id that was assigned when the strip was initialized.
+
+    *********************
+    Return Object Fields:
+    *********************
+
+    :success: bool | Whether the write operation was completed successfully
+
+    Example Successful Response(s)::
+
+        {
+          "success": true
+        }
+
+    Example Error Response(s)::
+
+        {
+          "success": false,
+          "error": "Strip D9 is not initialized"
+        }
+
+    Fill:
+    #####
+
+    URL: ``/fill/<strip_id>/``
+
+    Method(s): POST
+
+    Details: Fill the specified strip with the given color
+
+    ***************
+    Path Arguments:
+    ***************
+
+    :strip_id: str | The strip_id that was assigned when the strip was initialized.
+
+    ***********************
+    Required Args for POST:
+    ***********************
+
+    :color: str | The color to fill the strip with
+
+    *********************
+    Return Object Fields:
+    *********************
+
+    :success: bool | Whether the strip was initialized successfully.
+
+    Example Request Data Body::
+
+        {
+        "color": "0x0000ff"
+        }
+
+    Example Successful Response(s)::
+
+        {
+          "success": true
+        }
+
+    Example Error Response(s)::
+
+        {
+          "success": false,
+          "error": "Strip D9 is not initialized"
+        }
+
+    Get or Set Brightness:
+    ######################
+
+    URL: ``/brightness/<strip_id>/``
+
+    Method(s): GET, POST
+
+    Details: Get or Set the brightness value for a strip.
+
+    ***************
+    Path Arguments:
+    ***************
+
+    :strip_id: str | The strip_id that was assigned when the strip was initialized.
+
+    ***********************
+    Required Args for POST:
+    ***********************
+
+    :brightness: float | The brightness level to set on the strip between 0.0 - 1.0
+
+    *********************
+    Return Object Fields:
+    *********************
+
+    :success: bool | Whether the strip was initialized successfully.
+
+    Example Request Data Body::
+
+        {
+        "color": "0x0000ff"
+        }
+
+    Example Successful Response(s)::
+
+        {
+          "success": true
+        }
+
+    Example Error Response(s)::
+
+        {
+          "success": false,
+          "error": "Strip D9 is not initialized"
+        }
+
+
+    Class Methods:
+    **************
+    """
+
+    # pylint: disable=too-many-statements
     def __init__(self):
-
         self.pool = socketpool.SocketPool(wifi.radio)
         self.server = Server(self.pool, None, debug=True)
         auths = None
@@ -116,17 +513,14 @@ class RGBLedServer:
             ]
 
         self.context = {
-
             "modes": {
                 # strip_id: 'pixles' or 'animation'
             },
-
             "current_animations": {
                 # strip_id: animation_id
             },
             "strips": {
                 # "D6": neopixel_obj
-
             },
             "old_auto_writes": {
                 # strip_id: bool
@@ -136,20 +530,38 @@ class RGBLedServer:
             },
             "animation_strip_map": {
                 # animation_id : strip_id
-            }
+            },
         }
 
         # start = time.monotonic()
 
         def _validate_request_data(request, required_args):
+            """
+            Ensure that that request data is valid JSON and contains all required arguments.
+            Create Error with helpful messages for invalid cases.
+
+            :param request: Request object with incoming data
+            :param required_args: List or Tuple of strings representing required arguments.
+
+            :return: Union[JSONResponse, dict] The dictionary containing the argument data
+                or a JSONResponse Error if some of the required arguments were missing or
+                invalid for other reasons.
+            """
             try:
                 req_obj = request.json()
             except ValueError:
-                return JSONResponse(request, {"success": False, "error": f"Invalid JSON"}, status=BAD_REQUEST_400)
+                return JSONResponse(
+                    request,
+                    {"success": False, "error": "Invalid JSON"},
+                    status=BAD_REQUEST_400,
+                )
 
             if req_obj is None:
-                return JSONResponse(request, {"success": False, "error": f"Missing Required JSON Body"},
-                                    status=BAD_REQUEST_400)
+                return JSONResponse(
+                    request,
+                    {"success": False, "error": "Missing Required JSON Body"},
+                    status=BAD_REQUEST_400,
+                )
 
             missing_args = []
             for _arg in required_args:
@@ -157,13 +569,19 @@ class RGBLedServer:
                     missing_args.append(_arg)
 
             if missing_args:
-                return JSONResponse(request,
-                                    {"success": False, "error": f"Missing Required Argument(s): {missing_args}"},
-                                    status=BAD_REQUEST_400)
+                return JSONResponse(
+                    request,
+                    {
+                        "success": False,
+                        "error": f"Missing Required Argument(s): {missing_args}",
+                    },
+                    status=BAD_REQUEST_400,
+                )
             return req_obj
 
         @self.server.route("/init/neopixels", [POST], append_slash=True)
         def init_neopixels(request: Request):
+            """ """
             if self.auths is not None:
                 require_authentication(request, auths)
 
@@ -173,35 +591,48 @@ class RGBLedServer:
                 return error_resp_or_req_data
             req_data = error_resp_or_req_data
 
-            if not hasattr(board, req_data['pin']):
-                return JSONResponse(request, {"success": False, "error": f"Invalid Pin: {req_data['pin']}"},
-                                    status=BAD_REQUEST_400)
+            if not hasattr(board, req_data["pin"]):
+                return JSONResponse(
+                    request,
+                    {"success": False, "error": f"Invalid Pin: {req_data['pin']}"},
+                    status=BAD_REQUEST_400,
+                )
 
             strip_id = None
-            if 'id' not in req_data:
-                strip_id = req_data['pin']
+            if "id" not in req_data:
+                strip_id = req_data["pin"]
             else:
-                strip_id = req_data['id']
+                strip_id = req_data["id"]
 
-            if strip_id in self.context['strips']:
-                return JSONResponse(request, {"success": False, "error": f"Strip {strip_id} is already initialized"},
-                                    status=BAD_REQUEST_400)
+            if strip_id in self.context["strips"]:
+                return JSONResponse(
+                    request,
+                    {
+                        "success": False,
+                        "error": f"Strip {strip_id} is already initialized",
+                    },
+                    status=BAD_REQUEST_400,
+                )
 
             _kwargs = {}
-            if 'kwargs' in req_data.keys():
-                _kwargs = req_data['kwargs']
+            if "kwargs" in req_data.keys():
+                _kwargs = req_data["kwargs"]
 
             # print(_kwargs)
             try:
                 _pixels = neopixel.NeoPixel(
-                    getattr(board, req_data['pin']), req_data['pixel_count'], **_kwargs
+                    getattr(board, req_data["pin"]), req_data["pixel_count"], **_kwargs
                 )
 
-                self.context['modes'][strip_id] = "pixels"
+                self.context["modes"][strip_id] = "pixels"
 
-            except TypeError as e:
-                return JSONResponse(request, {"success": False, "error": str(e)}, status=BAD_REQUEST_400)
-            self.context['strips'][strip_id] = _pixels
+            except TypeError as type_error:
+                return JSONResponse(
+                    request,
+                    {"success": False, "error": str(type_error)},
+                    status=BAD_REQUEST_400,
+                )
+            self.context["strips"][strip_id] = _pixels
 
             _pixels.fill(0)
             if not _pixels.auto_write:
@@ -219,39 +650,65 @@ class RGBLedServer:
                 return error_resp_or_req_data
             req_data = error_resp_or_req_data
 
-            if not hasattr(board, req_data['data_pin']):
-                return JSONResponse(request, {"success": False, "error": f"Invalid Pin: {req_data['data_pin']}"},
-                                    status=BAD_REQUEST_400)
-            if not hasattr(board, req_data['clock_pin']):
-                return JSONResponse(request, {"success": False, "error": f"Invalid Pin: {req_data['clock_pin']}"},
-                                    status=BAD_REQUEST_400)
+            if not hasattr(board, req_data["data_pin"]):
+                return JSONResponse(
+                    request,
+                    {"success": False, "error": f"Invalid Pin: {req_data['data_pin']}"},
+                    status=BAD_REQUEST_400,
+                )
+            if not hasattr(board, req_data["clock_pin"]):
+                return JSONResponse(
+                    request,
+                    {
+                        "success": False,
+                        "error": f"Invalid Pin: {req_data['clock_pin']}",
+                    },
+                    status=BAD_REQUEST_400,
+                )
 
             strip_id = None
-            if 'id' not in req_data:
-                strip_id = req_data['clock_pin'] + req_data['data_pin']
+            if "id" not in req_data:
+                strip_id = req_data["clock_pin"] + req_data["data_pin"]
             else:
-                strip_id = req_data['id']
+                strip_id = req_data["id"]
 
-            if strip_id in self.context['strips']:
-                return JSONResponse(request, {"success": False, "error": f"Strip {strip_id} is already initialized"},
-                                    status=BAD_REQUEST_400)
+            if strip_id in self.context["strips"]:
+                return JSONResponse(
+                    request,
+                    {
+                        "success": False,
+                        "error": f"Strip {strip_id} is already initialized",
+                    },
+                    status=BAD_REQUEST_400,
+                )
 
             _kwargs = {}
-            if 'kwargs' in req_data.keys():
-                _kwargs = req_data['kwargs']
+            if "kwargs" in req_data.keys():
+                _kwargs = req_data["kwargs"]
 
             # print(_kwargs)
             try:
-                _pixels = dotstar.DotStar(getattr(board, req_data['clock_pin']), getattr(board, req_data['data_pin']),
-                                          req_data['pixel_count'],
-                                          **_kwargs)
+                _pixels = dotstar.DotStar(
+                    getattr(board, req_data["clock_pin"]),
+                    getattr(board, req_data["data_pin"]),
+                    req_data["pixel_count"],
+                    **_kwargs,
+                )
 
-                self.context['modes'][strip_id] = "pixels"
-            except TypeError as e:
-                return JSONResponse(request, {"success": False, "TypeError: ": str(e)}, status=BAD_REQUEST_400)
-            except ValueError as e:
-                return JSONResponse(request, {"success": False, "Value Error: ": str(e)}, status=BAD_REQUEST_400)
-            self.context['strips'][strip_id] = _pixels
+                self.context["modes"][strip_id] = "pixels"
+            except TypeError as type_error:
+                return JSONResponse(
+                    request,
+                    {"success": False, "TypeError: ": str(type_error)},
+                    status=BAD_REQUEST_400,
+                )
+            except ValueError as type_error:
+                return JSONResponse(
+                    request,
+                    {"success": False, "Value Error: ": str(type_error)},
+                    status=BAD_REQUEST_400,
+                )
+            self.context["strips"][strip_id] = _pixels
 
             _pixels.fill(0)
             if not _pixels.auto_write:
@@ -259,133 +716,189 @@ class RGBLedServer:
 
             return JSONResponse(request, {"success": True, "strip_id": strip_id})
 
+        # pylint: disable=inconsistent-return-statements
         @self.server.route("/pixels/<strip_id>", [POST, GET], append_slash=True)
         def pixels(request: Request, strip_id):
             if auths is not None:
                 require_authentication(request, auths)
             if request.method == POST:
-                if strip_id not in self.context['strips']:
-                    return JSONResponse(request, {"success": False, "error": f"Strip {strip_id} is not initialized"},
-                                        status=BAD_REQUEST_400)
+                if strip_id not in self.context["strips"]:
+                    return JSONResponse(
+                        request,
+                        {
+                            "success": False,
+                            "error": f"Strip {strip_id} is not initialized",
+                        },
+                        status=BAD_REQUEST_400,
+                    )
                 required_args = ("pixels",)
                 error_resp_or_req_data = _validate_request_data(request, required_args)
                 if isinstance(error_resp_or_req_data, JSONResponse):
                     return error_resp_or_req_data
                 req_data = error_resp_or_req_data
 
-                _pixels_input_data = req_data['pixels']
+                _pixels_input_data = req_data["pixels"]
 
                 if not isinstance(_pixels_input_data, (dict)):
-                    return JSONResponse(request, {"success": False, "error": "Pixels must be list or dictionary"})
+                    return JSONResponse(
+                        request,
+                        {
+                            "success": False,
+                            "error": "Pixels must be list or dictionary",
+                        },
+                    )
 
                 if "blank_pixels" in req_data.keys():
-                    if req_data["blank_pixels"] == True:
-                        self.context['strips'][strip_id].fill(0x0)
-                        self.context['strips'][strip_id].write()
+                    if req_data["blank_pixels"] is True:
+                        self.context["strips"][strip_id].fill(0x0)
+                        self.context["strips"][strip_id].write()
 
                 # if self.context['mode'] != 'pixels':
                 #     self.context['mode'] = 'pixels'
 
-                if self.context['modes'][strip_id] != 'pixels':
-                    self.context['modes'][strip_id] = 'pixels'
-                    print(f"setting {strip_id}.auto_write = {self.context['old_auto_writes'][strip_id]}")
-                    self.context['strips'][strip_id].auto_write = self.context['old_auto_writes'][strip_id]
+                if self.context["modes"][strip_id] != "pixels":
+                    self.context["modes"][strip_id] = "pixels"
+                    print(
+                        f"setting {strip_id}.auto_write = {self.context['old_auto_writes'][strip_id]}"
+                    )
+                    self.context["strips"][strip_id].auto_write = self.context[
+                        "old_auto_writes"
+                    ][strip_id]
 
                 _cur_key = None
                 try:
-                    for key in req_data['pixels'].keys():
+                    for key in req_data["pixels"].keys():
                         _cur_key = key
-                        _cur_value = req_data['pixels'][key]
+                        _cur_value = req_data["pixels"][key]
 
                         try:
-                            self.context['strips'][strip_id][int(key)] = convert_color_to_num(_cur_value)
-                        except ValueError as e:
-                            return JSONResponse(request,
-                                                {"success": False,
-                                                 "error": f"Value Error from '{_cur_value}': {str(e)}"})
+                            self.context["strips"][strip_id][
+                                int(key)
+                            ] = convert_color_to_num(_cur_value)
+                        except ValueError as value_error:
+                            return JSONResponse(
+                                request,
+                                {
+                                    "success": False,
+                                    "error": f"Value Error from '{_cur_value}': {str(value_error)}",
+                                },
+                            )
 
                 except IndexError:
-                    return JSONResponse(request, {"success": False, "error": f"Index Error on Key: {_cur_key}"},
-                                        status=BAD_REQUEST_400)
+                    return JSONResponse(
+                        request,
+                        {"success": False, "error": f"Index Error on Key: {_cur_key}"},
+                        status=BAD_REQUEST_400,
+                    )
 
                 return JSONResponse(request, {"success": True})
 
-            elif request.method == GET:
-                if strip_id not in self.context['strips']:
-                    return JSONResponse(request, {"success": False, "error": f"Strip {strip_id} is not initialized"},
-                                        status=BAD_REQUEST_400)
+            if request.method == GET:
+                if strip_id not in self.context["strips"]:
+                    return JSONResponse(
+                        request,
+                        {
+                            "success": False,
+                            "error": f"Strip {strip_id} is not initialized",
+                        },
+                        status=BAD_REQUEST_400,
+                    )
 
                 _color_type = request.query_params.get("color_type") or "rgb"
 
                 _strip_colors = {}
 
-                for i in range(len(self.context['strips'][strip_id])):
+                for i in range(len(self.context["strips"][strip_id])):
                     if _color_type == "rgb":
-                        _strip_colors[i] = self.context['strips'][strip_id][i]
+                        _strip_colors[i] = self.context["strips"][strip_id][i]
                     elif _color_type == "hex":
-                        _strip_colors[i] = hex(rgb_to_hex(self.context['strips'][strip_id][i]))
+                        _strip_colors[i] = hex(
+                            rgb_to_hex(self.context["strips"][strip_id][i])
+                        )
 
-                return JSONResponse(request, {"success": True, 'pixels': _strip_colors})
+                return JSONResponse(request, {"success": True, "pixels": _strip_colors})
 
         @self.server.route("/write/<strip_id>", [POST], append_slash=True)
         def write(request: Request, strip_id):
             if auths is not None:
                 require_authentication(request, auths)
-            if strip_id not in self.context['strips']:
-                return JSONResponse(request, {"success": False, "error": f"Strip {strip_id} is not initialized"},
-                                    status=BAD_REQUEST_400)
-            self.context['strips'][strip_id].write()
+            if strip_id not in self.context["strips"]:
+                return JSONResponse(
+                    request,
+                    {"success": False, "error": f"Strip {strip_id} is not initialized"},
+                    status=BAD_REQUEST_400,
+                )
+            self.context["strips"][strip_id].write()
             return JSONResponse(request, {"success": True})
 
         @self.server.route("/fill/<strip_id>", [POST], append_slash=True)
         def fill(request: Request, strip_id):
             if auths is not None:
                 require_authentication(request, auths)
-            if strip_id not in self.context['strips']:
-                return JSONResponse(request, {"success": False, "error": f"Strip {strip_id} is not initialized"},
-                                    status=BAD_REQUEST_400)
+            if strip_id not in self.context["strips"]:
+                return JSONResponse(
+                    request,
+                    {"success": False, "error": f"Strip {strip_id} is not initialized"},
+                    status=BAD_REQUEST_400,
+                )
             required_args = ("color",)
             error_resp_or_req_data = _validate_request_data(request, required_args)
             if isinstance(error_resp_or_req_data, JSONResponse):
                 return error_resp_or_req_data
             req_data = error_resp_or_req_data
-            if self.context['mode'] != 'pixels':
-                self.context['mode'] = 'pixels'
-                print(f"setting {strip_id}.auto_write = {self.context['old_auto_writes'][strip_id]}")
-                self.context['strips'][strip_id].auto_write = self.context['old_auto_writes'][strip_id]
+            if self.context["mode"] != "pixels":
+                self.context["mode"] = "pixels"
+                print(
+                    f"setting {strip_id}.auto_write = {self.context['old_auto_writes'][strip_id]}"
+                )
+                self.context["strips"][strip_id].auto_write = self.context[
+                    "old_auto_writes"
+                ][strip_id]
 
-            self.context['strips'][strip_id].fill(convert_color_to_num(req_data["color"]))
+            self.context["strips"][strip_id].fill(
+                convert_color_to_num(req_data["color"])
+            )
             return JSONResponse(request, {"success": True})
 
         @self.server.route("/brightness/<strip_id>", [GET, POST], append_slash=True)
         def brightness(request: Request, strip_id):
             if auths is not None:
                 require_authentication(request, auths)
-            if strip_id not in self.context['strips']:
-                return JSONResponse(request, {"success": False, "error": f"Strip {strip_id} is not initialized"},
-                                    status=BAD_REQUEST_400)
+            if strip_id not in self.context["strips"]:
+                return JSONResponse(
+                    request,
+                    {"success": False, "error": f"Strip {strip_id} is not initialized"},
+                    status=BAD_REQUEST_400,
+                )
 
             if request.method == POST:
-
                 required_args = ("brightness",)
                 error_resp_or_req_data = _validate_request_data(request, required_args)
                 if isinstance(error_resp_or_req_data, JSONResponse):
                     return error_resp_or_req_data
                 req_data = error_resp_or_req_data
-                self.context['strips'][strip_id].brightness = req_data['brightness']
+                self.context["strips"][strip_id].brightness = req_data["brightness"]
                 return JSONResponse(request, {"success": True})
 
-            elif request.method == GET:
-                return JSONResponse(request,
-                                    {"success": True, "brightness": self.context['strips'][strip_id].brightness})
+            if request.method == GET:
+                return JSONResponse(
+                    request,
+                    {
+                        "success": True,
+                        "brightness": self.context["strips"][strip_id].brightness,
+                    },
+                )
 
         @self.server.route("/auto_write/<strip_id>", [GET, POST], append_slash=True)
         def auto_write(request: Request, strip_id):
             if auths is not None:
                 require_authentication(request, auths)
-            if strip_id not in self.context['strips']:
-                return JSONResponse(request, {"success": False, "error": f"Strip {strip_id} is not initialized"},
-                                    status=BAD_REQUEST_400)
+            if strip_id not in self.context["strips"]:
+                return JSONResponse(
+                    request,
+                    {"success": False, "error": f"Strip {strip_id} is not initialized"},
+                    status=BAD_REQUEST_400,
+                )
 
             if request.method == POST:
                 required_args = ("auto_write",)
@@ -393,12 +906,17 @@ class RGBLedServer:
                 if isinstance(error_resp_or_req_data, JSONResponse):
                     return error_resp_or_req_data
                 req_data = error_resp_or_req_data
-                self.context['strips'][strip_id].auto_write = req_data['auto_write']
+                self.context["strips"][strip_id].auto_write = req_data["auto_write"]
                 return JSONResponse(request, {"success": True})
 
-            elif request.method == GET:
-                return JSONResponse(request,
-                                    {"success": True, "auto_write": self.context['strips'][strip_id].auto_write})
+            if request.method == GET:
+                return JSONResponse(
+                    request,
+                    {
+                        "success": True,
+                        "auto_write": self.context["strips"][strip_id].auto_write,
+                    },
+                )
 
         @self.server.route("/init/animation", [POST], append_slash=True)
         def init_animation(request: Request):
@@ -411,86 +929,121 @@ class RGBLedServer:
                 return error_resp_or_req_data
             req_data = error_resp_or_req_data
 
-            strip_id = req_data['strip_id']
-            if req_data['strip_id'] not in self.context['strips']:
-                return JSONResponse(request, {"success": False, "error": f"Strip {strip_id} is not initialized"},
-                                    status=BAD_REQUEST_400)
+            strip_id = req_data["strip_id"]
+            if req_data["strip_id"] not in self.context["strips"]:
+                return JSONResponse(
+                    request,
+                    {"success": False, "error": f"Strip {strip_id} is not initialized"},
+                    status=BAD_REQUEST_400,
+                )
 
-            if req_data['animation'] not in ANIMATION_CLASSES.keys():
-                return JSONResponse(request,
-                                    {"success": False, "error": f"Animation {req_data['animation']} is unknown."},
-                                    status=BAD_REQUEST_400)
+            if req_data["animation"] not in ANIMATION_CLASSES:
+                return JSONResponse(
+                    request,
+                    {
+                        "success": False,
+                        "error": f"Animation {req_data['animation']} is unknown.",
+                    },
+                    status=BAD_REQUEST_400,
+                )
 
-            if req_data['animation_id'] in self.context['animations'].keys():
-                return JSONResponse(request,
-                                    {"success": False,
-                                     "error": f"Animation {req_data['animation_id']} already exists."},
-                                    status=BAD_REQUEST_400)
+            if req_data["animation_id"] in self.context["animations"]:
+                return JSONResponse(
+                    request,
+                    {
+                        "success": False,
+                        "error": f"Animation {req_data['animation_id']} already exists.",
+                    },
+                    status=BAD_REQUEST_400,
+                )
 
             _kwargs = {}
-            if 'kwargs' in req_data.keys():
-                _kwargs = req_data['kwargs']
+            if "kwargs" in req_data.keys():
+                _kwargs = req_data["kwargs"]
 
             # if "color" not in _kwargs:
             #     return JSONResponse(request, {"success": False, "error": f"Missing required argument color"},
             #                         status=BAD_REQUEST_400)
 
             _color = None
-            if 'color' in _kwargs.keys():
-                _color = self.convert_color_to_num(_kwargs['color'])
-                del _kwargs['color']
+            if "color" in _kwargs.keys():
+                _color = convert_color_to_num(_kwargs["color"])
+                del _kwargs["color"]
 
-            animation_id = req_data['animation_id']
+            animation_id = req_data["animation_id"]
 
-            self.context['old_auto_writes'][strip_id] = self.context['strips'][strip_id].auto_write
+            self.context["old_auto_writes"][strip_id] = self.context["strips"][
+                strip_id
+            ].auto_write
 
-            anim_constructor = self.import_animation_contructor(req_data['animation'])
-            if anim_constructor == None:
-                return JSONResponse(request, {"success": False, "error": f"Invalid animation: {req_data['animation']}"},
-                                    status=BAD_REQUEST_400)
+            anim_constructor = import_animation_contructor(req_data["animation"])
+            if anim_constructor is None:
+                return JSONResponse(
+                    request,
+                    {
+                        "success": False,
+                        "error": f"Invalid animation: {req_data['animation']}",
+                    },
+                    status=BAD_REQUEST_400,
+                )
 
             if _color:
-                self.context['animations'][animation_id] = anim_constructor(
-                    self.context['strips'][strip_id],
-                    color=_color,
-                    **_kwargs
+                self.context["animations"][animation_id] = anim_constructor(
+                    self.context["strips"][strip_id], color=_color, **_kwargs
                 )
             else:
-                self.context['animations'][animation_id] = anim_constructor(
-                    self.context['strips'][strip_id],
-                    **_kwargs
+                self.context["animations"][animation_id] = anim_constructor(
+                    self.context["strips"][strip_id], **_kwargs
                 )
-            self.context['animation_strip_map'][req_data['animation_id']] = strip_id
+            self.context["animation_strip_map"][req_data["animation_id"]] = strip_id
 
-            print(self.context['animations'][req_data['animation_id']])
+            print(self.context["animations"][req_data["animation_id"]])
 
-            return JSONResponse(request, {"success": True, "animation_id": req_data['animation_id']})
+            return JSONResponse(
+                request, {"success": True, "animation_id": req_data["animation_id"]}
+            )
 
         @self.server.route("/start/animation/<animation_id>", [POST], append_slash=True)
         def start_animation(request: Request, animation_id):
             if auths is not None:
                 require_authentication(request, auths)
 
-            if animation_id not in self.context['animations']:
-                return JSONResponse(request,
-                                    {"success": False, "error": f"Animation {animation_id} is not initialized"},
-                                    status=BAD_REQUEST_400)
+            if animation_id not in self.context["animations"]:
+                return JSONResponse(
+                    request,
+                    {
+                        "success": False,
+                        "error": f"Animation {animation_id} is not initialized",
+                    },
+                    status=BAD_REQUEST_400,
+                )
 
             # self.context['current_animation'] = animation_id
-            self.context['current_animations'][self.context['animation_strip_map'][animation_id]] = animation_id
+            self.context["current_animations"][
+                self.context["animation_strip_map"][animation_id]
+            ] = animation_id
             # self.context['mode'] = 'animation'
-            self.context['modes'][self.context['animation_strip_map'][animation_id]] = 'animation'
+            self.context["modes"][
+                self.context["animation_strip_map"][animation_id]
+            ] = "animation"
             return JSONResponse(request, {"success": True})
 
-        @self.server.route("/animation/<animation_id>/setprop", [POST], append_slash=True)
+        @self.server.route(
+            "/animation/<animation_id>/setprop", [POST], append_slash=True
+        )
         def animation_setprop(request: Request, animation_id):
             if auths is not None:
                 require_authentication(request, auths)
 
-            if animation_id not in self.context['animations']:
-                return JSONResponse(request,
-                                    {"success": False, "error": f"Animation {animation_id} is not initialized"},
-                                    status=BAD_REQUEST_400)
+            if animation_id not in self.context["animations"]:
+                return JSONResponse(
+                    request,
+                    {
+                        "success": False,
+                        "error": f"Animation {animation_id} is not initialized",
+                    },
+                    status=BAD_REQUEST_400,
+                )
 
             required_args = ("name", "value")
             error_resp_or_req_data = _validate_request_data(request, required_args)
@@ -498,23 +1051,47 @@ class RGBLedServer:
                 return error_resp_or_req_data
             req_data = error_resp_or_req_data
 
-            if hasattr(self.context['animations'][animation_id], req_data['name']):
-                setattr(self.context['animations'][animation_id], req_data['name'], req_data['value'])
+            if hasattr(self.context["animations"][animation_id], req_data["name"]):
+                setattr(
+                    self.context["animations"][animation_id],
+                    req_data["name"],
+                    req_data["value"],
+                )
             else:
-                return JSONResponse(request, {"success": False, "error": f"Invalid property {req_data['name']}"},
-                                    status=BAD_REQUEST_400)
+                return JSONResponse(
+                    request,
+                    {"success": False, "error": f"Invalid property {req_data['name']}"},
+                    status=BAD_REQUEST_400,
+                )
 
             return JSONResponse(request, {"success": True})
 
         self.server.start(str(wifi.radio.ipv4_address))
 
     def animate(self):
-        for strip_id in self.context['modes'].keys():
-            if self.context['modes'][strip_id] == 'animation':
-                self.context['animations'][self.context["current_animations"][strip_id]].animate()
+        """
+        Process one frame of animation for all animations that are
+        currently running.
+
+        Should be called frequently from the main loop.
+
+        :return: None
+        """
+        for strip_id in self.context["modes"]:
+            if self.context["modes"][strip_id] == "animation":
+                self.context["animations"][
+                    self.context["current_animations"][strip_id]
+                ].animate()
 
     def poll(self):
+        """
+        Process http server polling to handle any requests that have come in.
+        Should be called frequently from the main loop.
+
+        :return: None
+        """
         self.server.poll()
+
 
 # while True:
 #
