@@ -1,0 +1,64 @@
+# SPDX-FileCopyrightText: 2022 Alec Delaney, written for Adafruit Industries
+# SPDX-FileCopyrightText: Copyright (c) 2023 Tim C
+#
+# SPDX-License-Identifier: MIT
+
+[build-system]
+requires = [
+    "setuptools",
+    "wheel",
+    "setuptools-scm",
+]
+
+[project]
+name = "circuitpython-rgb-led-httpserver"
+description = "Control Neopixels or Dotstars over the network with an HTTP API that runs in CircuitPython."
+version = "0.0.0+auto.0"
+readme = "README.rst"
+authors = [
+    {name = "Tim C", email = "foamyguy@gmail.com"}
+]
+urls = {Homepage = "https://github.com/foamyguy/CircuitPython_RGB_LED_HTTPServer"}
+keywords = [
+    "adafruit",
+    "blinka",
+    "circuitpython",
+    "micropython",
+    "rgb_led_httpserver",
+    "rgb",
+    "led",
+    "rgbled",
+    "neopixel",
+    "dotstar",
+    "http",
+    "server",
+    "remote",
+    "remotecontrol",
+    "control",
+    "api",
+    "colors",
+    "color",
+    "animation",
+    "led_animation",
+    "leds",
+    "json",
+]
+license = {text = "MIT"}
+classifiers = [
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Embedded Systems",
+    "Topic :: System :: Hardware",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+]
+dynamic = ["dependencies", "optional-dependencies"]
+
+[tool.setuptools]
+# TODO: IF LIBRARY FILES ARE A PACKAGE FOLDER,
+#       CHANGE `py_modules = ['...']` TO `packages = ['...']`
+py-modules = ["rgb_led_httpserver"]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
+optional-dependencies = {optional = {file = ["optional_requirements.txt"]}}
