@@ -345,7 +345,7 @@ class RGBLedServer:
     Return Object Fields:
     *********************
 
-    :success: bool | Whether the strip was initialized successfully.
+    :success: bool | Whether the operation was completed successfully.
 
     Example Request Data Body::
 
@@ -390,7 +390,7 @@ class RGBLedServer:
     Return Object Fields:
     *********************
 
-    :success: bool | Whether the write operation was completed successfully
+    :success: bool | Whether the operation was completed successfully.
 
     Example Successful Response(s)::
 
@@ -430,7 +430,7 @@ class RGBLedServer:
     Return Object Fields:
     *********************
 
-    :success: bool | Whether the strip was initialized successfully.
+    :success: bool | Whether the operation was completed successfully.
 
     Example Request Data Body::
 
@@ -476,15 +476,22 @@ class RGBLedServer:
     Return Object Fields:
     *********************
 
-    :success: bool | Whether the strip was initialized successfully.
+    :success: bool | Whether the operation was completed successfully.
 
-    Example Request Data Body::
+    Example POST Request Data Body::
 
         {
-        "color": "0x0000ff"
+        "brightness": 0.1
         }
 
-    Example Successful Response(s)::
+    Example Successful Response from GET::
+
+        {
+          "success": true,
+          "brightness": 0.1
+        }
+
+    Example Successful Response from POST::
 
         {
           "success": true
@@ -497,6 +504,190 @@ class RGBLedServer:
           "error": "Strip D9 is not initialized"
         }
 
+    Get or Set Auto Write:
+    ######################
+
+    URL: ``/auto_write/<strip_id>/``
+
+    Method(s): GET, POST
+
+    Details: Get or Set the auto_write value for a strip.
+
+    ***************
+    Path Arguments:
+    ***************
+
+    :strip_id: str | The strip_id that was assigned when the strip was initialized.
+
+    ***********************
+    Required Args for POST:
+    ***********************
+
+    :auto_write: bool | Whether auto_write is enabled
+
+    *********************
+    Return Object Fields:
+    *********************
+
+    :success: bool | Whether the operation was completed successfully.
+
+    Example POST Request Data Body::
+
+        {
+        "auto_write": true
+        }
+
+    Example Successful Response from GET::
+
+        {
+          "success": true,
+          "auto_write": false
+        }
+
+    Example Successful Response from POST::
+
+        {
+          "success": true
+        }
+
+    Example Error Response(s)::
+
+        {
+          "success": false,
+          "error": "Strip D9 is not initialized"
+        }
+
+
+    Initialize Animation:
+    #####################
+
+    URL: ``/init/animation/``
+
+    Method(s): POST
+
+    Details: Initialize an animation on the specified strip. Animations are dynmically imported. Sending a request to this endpoint will result in the animation being imported.
+
+    **************
+    Required Args:
+    **************
+
+    :strip_id: str | The strip_id that was assigned when the strip was initialized.
+    :animation_id: str | The unique ID that will be used to refer to this animation in future requests.
+    :animation: str | The animation type to initialize. See ``ANIMATION_CLASSES.keys()`` for possible types.
+    :kwargs: dict | Dictionary of keyword arguments to pass along
+      to the Animation class constructor. Different animations support different arguments. Some commonly used kwargs are ``color`` and ``speed``. See the LED_Animation library documentation for more comprehensive information.
+
+    *********************
+    Return Object Fields:
+    *********************
+
+        :success: bool | Whether the animation was initialized successfully.
+        :animation_id: str | The ``animation_id`` that was assigned to the animation if it was
+            successfully initialized.
+
+
+    Example Request Data Body::
+
+        {
+          "strip_id" : "NEOPIXEL",
+          "animation_id": "blink_builtin",
+          "animation": "blink",
+          "kwargs":{
+            "speed": 0.25,
+            "color" : "0x0000ff"
+          }
+        }
+
+    Example Successful Response(s)::
+
+        {
+          "success": true,
+          "animation_id": "blink_builtin"
+        }
+
+    Example Error Response(s)::
+
+        {
+          "success": false,
+          "error": "Invalid animation: BlinkyDiscoParty"
+        }
+
+    Start Animation:
+    ################
+
+    URL: ``/start/animation/<animation_id>/``
+
+    Method(s): POST
+
+    Details: Start running the specified animation. If the strip was in pixels mode it will be changed to animation mode.
+
+    **********
+    Path Args:
+    **********
+
+    :animation_id: str | The animation_id of the already initialized animation to start.
+
+    *********************
+    Return Object Fields:
+    *********************
+
+        :success: bool | Whether the animation was started successfully.
+
+
+    Example Successful Response(s)::
+
+        {
+          "success": true
+        }
+
+    Example Error Response(s)::
+
+        {
+          "success": false,
+          "error": "Animation builtin_comet is not initialized"
+        }
+
+    Set animation property:
+    #######################
+
+    URL: ``/animation/<animation_id>/setprop``
+
+    Method(s): POST
+
+    Details: Set a property on the specified initialized animation. See LED_Animation docs for comprehensive info about which properties are supported by which aniatmions and their effects.
+
+    **************
+    Required Args:
+    **************
+
+    :name: str | The name of the property to get or set.
+    :value: Any | The value to set to the property.
+
+    *********************
+    Return Object Fields:
+    *********************
+
+        :success: bool | Whether the animation property was set successfully.
+
+    Example Request Data Body::
+
+        {
+        "name": "speed",
+        "value": 0.1
+        }
+
+    Example Successful Response(s)::
+
+        {
+          "success": true
+        }
+
+    Example Error Response(s)::
+
+        {
+          "success": false,
+          "error": "Invalid property highlight"
+        }
 
     Class Methods:
     **************
