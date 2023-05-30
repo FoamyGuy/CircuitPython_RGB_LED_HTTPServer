@@ -64,6 +64,7 @@ ANIMATION_CLASSES = {
     "colorcycle": ("adafruit_led_animation.animation.colorcycle", "ColorCycle"),
     "comet": ("adafruit_led_animation.animation.comet", "Comet"),
     "rainbow": ("adafruit_led_animation.animation.rainbow", "Rainbow"),
+    "pulse": ("adafruit_led_animation.animation.pulse", "Pulse")
 }
 
 
