@@ -34,8 +34,15 @@ Implementation Notes
 
 import os
 import board
-import neopixel
-import adafruit_dotstar as dotstar
+try:
+    import neopixel
+except ImportError:
+    print("WARNING: neopixel import not found")
+try:
+    import adafruit_dotstar as dotstar
+except ImportError:
+    print("WARNING: adafruit_dotstar import not found")
+    pass
 import socketpool
 import wifi
 from adafruit_httpserver import (
@@ -708,7 +715,7 @@ class RGBLedServer:
     def __init__(self):
         self.pool = socketpool.SocketPool(wifi.radio)
         self.server = Server(self.pool, None, debug=True)
-        auths = None
+        self.auths = None
         if os.getenv("HTTP_RGB_BEARER_AUTH"):
             self.auths = [
                 Bearer(os.getenv("HTTP_RGB_BEARER_AUTH")),
@@ -785,7 +792,7 @@ class RGBLedServer:
         def init_neopixels(request: Request):
             """ """
             if self.auths is not None:
-                require_authentication(request, auths)
+                require_authentication(request, self.auths)
 
             required_args = ("pin", "pixel_count")
             error_resp_or_req_data = _validate_request_data(request, required_args)
@@ -844,8 +851,8 @@ class RGBLedServer:
 
         @self.server.route("/init/dotstars", [POST], append_slash=True)
         def init_dotstars(request: Request):
-            if auths is not None:
-                require_authentication(request, auths)
+            if self.auths is not None:
+                require_authentication(request, self.auths)
             required_args = ("data_pin", "clock_pin", "pixel_count")
             error_resp_or_req_data = _validate_request_data(request, required_args)
             if isinstance(error_resp_or_req_data, JSONResponse):
@@ -921,8 +928,8 @@ class RGBLedServer:
         # pylint: disable=inconsistent-return-statements
         @self.server.route("/pixels/<strip_id>", [POST, GET], append_slash=True)
         def pixels(request: Request, strip_id):
-            if auths is not None:
-                require_authentication(request, auths)
+            if self.auths is not None:
+                require_authentication(request, self.auths)
             if request.method == POST:
                 if strip_id not in self.context["strips"]:
                     return JSONResponse(
@@ -1022,8 +1029,8 @@ class RGBLedServer:
 
         @self.server.route("/write/<strip_id>", [POST], append_slash=True)
         def write(request: Request, strip_id):
-            if auths is not None:
-                require_authentication(request, auths)
+            if self.auths is not None:
+                require_authentication(request, self.auths)
             if strip_id not in self.context["strips"]:
                 return JSONResponse(
                     request,
@@ -1035,8 +1042,8 @@ class RGBLedServer:
 
         @self.server.route("/fill/<strip_id>", [POST], append_slash=True)
         def fill(request: Request, strip_id):
-            if auths is not None:
-                require_authentication(request, auths)
+            if self.auths is not None:
+                require_authentication(request, self.auths)
             if strip_id not in self.context["strips"]:
                 return JSONResponse(
                     request,
@@ -1048,8 +1055,8 @@ class RGBLedServer:
             if isinstance(error_resp_or_req_data, JSONResponse):
                 return error_resp_or_req_data
             req_data = error_resp_or_req_data
-            if self.context["mode"] != "pixels":
-                self.context["mode"] = "pixels"
+            if self.context["modes"][strip_id] != "pixels":
+                self.context["modes"][strip_id] = "pixels"
                 print(
                     f"setting {strip_id}.auto_write = {self.context['old_auto_writes'][strip_id]}"
                 )
@@ -1064,8 +1071,8 @@ class RGBLedServer:
 
         @self.server.route("/brightness/<strip_id>", [GET, POST], append_slash=True)
         def brightness(request: Request, strip_id):
-            if auths is not None:
-                require_authentication(request, auths)
+            if self.auths is not None:
+                require_authentication(request, self.auths)
             if strip_id not in self.context["strips"]:
                 return JSONResponse(
                     request,
@@ -1093,8 +1100,8 @@ class RGBLedServer:
 
         @self.server.route("/auto_write/<strip_id>", [GET, POST], append_slash=True)
         def auto_write(request: Request, strip_id):
-            if auths is not None:
-                require_authentication(request, auths)
+            if self.auths is not None:
+                require_authentication(request, self.auths)
             if strip_id not in self.context["strips"]:
                 return JSONResponse(
                     request,
@@ -1122,8 +1129,8 @@ class RGBLedServer:
 
         @self.server.route("/init/animation", [POST], append_slash=True)
         def init_animation(request: Request):
-            if auths is not None:
-                require_authentication(request, auths)
+            if self.auths is not None:
+                require_authentication(request, self.auths)
 
             required_args = ("strip_id", "animation_id", "animation", "kwargs")
             error_resp_or_req_data = _validate_request_data(request, required_args)
@@ -1207,8 +1214,8 @@ class RGBLedServer:
 
         @self.server.route("/start/animation/<animation_id>", [POST], append_slash=True)
         def start_animation(request: Request, animation_id):
-            if auths is not None:
-                require_authentication(request, auths)
+            if self.auths is not None:
+                require_authentication(request, self.auths)
 
             if animation_id not in self.context["animations"]:
                 return JSONResponse(
@@ -1234,8 +1241,8 @@ class RGBLedServer:
             "/animation/<animation_id>/setprop", [POST], append_slash=True
         )
         def animation_setprop(request: Request, animation_id):
-            if auths is not None:
-                require_authentication(request, auths)
+            if self.auths is not None:
+                require_authentication(request, self.auths)
 
             if animation_id not in self.context["animations"]:
                 return JSONResponse(
