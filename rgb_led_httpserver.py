@@ -72,6 +72,7 @@ ANIMATION_CLASSES = {
     "comet": ("adafruit_led_animation.animation.comet", "Comet"),
     "rainbow": ("adafruit_led_animation.animation.rainbow", "Rainbow"),
     "pulse": ("adafruit_led_animation.animation.pulse", "Pulse"),
+    "chase": ("adafruit_led_animation.animation.chase", "Chase"),
 }
 
 

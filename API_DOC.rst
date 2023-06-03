@@ -1,8 +1,8 @@
-<!--
-SPDX-FileCopyrightText: 2023 Tim C
+..
+  SPDX-FileCopyrightText: 2023 Tim C
 
-SPDX-License-Identifier: CC-BY-4.0
--->
+  SPDX-License-Identifier: CC-BY-4.0
+
 General API Information:
 ************************
 
