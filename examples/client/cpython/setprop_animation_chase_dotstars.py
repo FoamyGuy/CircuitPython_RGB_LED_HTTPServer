@@ -5,26 +5,37 @@ import os
 import requests
 
 ip_address = "192.168.1.227"
+animation_id = "D13D11_Chase"
 # print(os.getenv("HTTP_RGB_BEARER_AUTH"))
 # headers = {"Authorization": f"Bearer {os.getenv('HTTP_RGB_BEARER_AUTH')}"}
 headers = {"Authorization": f"Bearer cIgw2mX7Ditmxu2i8kD0EaeARLbsKnPmAwbxDc7gWDk"}
+# data_obj = {
+#     "name": "color",
+#     "value": "0xff00ff",
+# }
+
+# data_obj = {
+#     "name": "speed",
+#     "value": 0.05,
+# }
+
+# data_obj = {
+#     "name": "reverse",
+#     "value": True,
+# }
+
 data_obj = {
-    "strip_id": "D6",
-    "animation_id": "D6_Chase",
-    "animation": "chase",
-    "kwargs": {
-        "speed": 0.1,
-        "color": "0x00ff00",
-        "size": 2,
-        "spacing": 3,
-        "reverse": False,
-    },
+    "name": "colors",
+    "value": ["0xff00ff", "0x00ff00"],
 }
+
+
 resp = requests.post(
-    f"http://{ip_address}/init/animation/", headers=headers, json=data_obj
+    f"http://{ip_address}/animation/{animation_id}/setprop/",
+    headers=headers,
+    json=data_obj,
 )
 
-# print(resp.status_code)
 if resp.status_code == 200:
     try:
         print(resp.json())

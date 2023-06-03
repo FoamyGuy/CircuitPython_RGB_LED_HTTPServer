@@ -1,0 +1,1 @@
+allow animation_id to be optional for init animations and generate it by adding pins to animation name

@@ -74,6 +74,10 @@ ANIMATION_CLASSES = {
     "rainbow": ("adafruit_led_animation.animation.rainbow", "Rainbow"),
     "pulse": ("adafruit_led_animation.animation.pulse", "Pulse"),
     "chase": ("adafruit_led_animation.animation.chase", "Chase"),
+    "customcolorchase": (
+        "adafruit_led_animation.animation.customcolorchase",
+        "CustomColorChase",
+    ),
 }
 
 
@@ -88,6 +92,13 @@ def rgb_to_hex(tuple_color: Tuple[int, int, int]) -> int:
     return (
         (int(tuple_color[0]) << 16) + (int(tuple_color[1]) << 8) + int(tuple_color[2])
     )
+
+
+def convert_color_list(color_str_list: list):
+    output_list = []
+    for color_str in color_str_list:
+        output_list.append(convert_color_to_num(color_str))
+    return output_list
 
 
 def convert_color_to_num(color_str: Union[str, int, Tuple[int, int, int]]):
@@ -601,10 +612,10 @@ class RGBLedServer:
             #     return JSONResponse(request, {"success": False, "error": f"Missing required argument color"},
             #                         status=BAD_REQUEST_400)
 
-            _color = None
             if "color" in _kwargs.keys():
-                _color = convert_color_to_num(_kwargs["color"])
-                del _kwargs["color"]
+                _kwargs["color"] = convert_color_to_num(_kwargs["color"])
+            if "colors" in _kwargs.keys():
+                _kwargs["colors"] = convert_color_list(_kwargs["colors"])
 
             animation_id = req_data["animation_id"]
 
@@ -634,21 +645,38 @@ class RGBLedServer:
                     status=BAD_REQUEST_400,
                 )
 
-            if _color:
-                self.context["animations"][animation_id] = anim_constructor(
-                    self.context["strips"][strip_id], color=_color, **_kwargs
-                )
-            else:
+            try:
                 self.context["animations"][animation_id] = anim_constructor(
                     self.context["strips"][strip_id], **_kwargs
                 )
-            self.context["animation_strip_map"][req_data["animation_id"]] = strip_id
 
-            print(self.context["animations"][req_data["animation_id"]])
+                self.context["animation_strip_map"][req_data["animation_id"]] = strip_id
 
-            return JSONResponse(
-                request, {"success": True, "animation_id": req_data["animation_id"]}
-            )
+                # print(self.context["animations"][req_data["animation_id"]])
+
+                if "start" in req_data.keys():
+                    if req_data["start"]:
+                        self.context["current_animations"][
+                            self.context["animation_strip_map"][animation_id]
+                        ] = animation_id
+                        # self.context['mode'] = 'animation'
+                        self.context["modes"][
+                            self.context["animation_strip_map"][animation_id]
+                        ] = "animation"
+
+                return JSONResponse(
+                    request, {"success": True, "animation_id": req_data["animation_id"]}
+                )
+
+            except TypeError as e:
+                return JSONResponse(
+                    request,
+                    {
+                        "success": False,
+                        "error": f"TypeError initializing the animation: {str(e)}",
+                    },
+                    status=BAD_REQUEST_400,
+                )
 
         @self.server.route("/start/animation/<animation_id>", [POST], append_slash=True)
         def start_animation(request: Request, animation_id):
@@ -698,11 +726,16 @@ class RGBLedServer:
                 return error_resp_or_req_data
             req_data = error_resp_or_req_data
 
+            _value = req_data["value"]
+
+            if "colors" in req_data["name"]:
+                _value = convert_color_list(req_data["value"])
+            elif "color" in req_data["name"]:
+                _value = convert_color_to_num(req_data["value"])
+
             if hasattr(self.context["animations"][animation_id], req_data["name"]):
                 setattr(
-                    self.context["animations"][animation_id],
-                    req_data["name"],
-                    req_data["value"] if req_data["name"] != "color" else convert_color_to_num(req_data["value"]),
+                    self.context["animations"][animation_id], req_data["name"], _value
                 )
             else:
                 return JSONResponse(
