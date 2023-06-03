@@ -51,6 +51,7 @@ from adafruit_httpserver import (
     JSONResponse,
     POST,
     BAD_REQUEST_400,
+    INTERNAL_SERVER_ERROR_500,
     GET,
 )
 from adafruit_httpserver.authentication import (
@@ -271,7 +272,7 @@ class RGBLedServer:
 
             _pixels.fill(0)
             if not _pixels.auto_write:
-                _pixels.write()
+                _pixels.show()
 
             return JSONResponse(request, {"success": True, "strip_id": strip_id})
 
@@ -347,7 +348,7 @@ class RGBLedServer:
 
             _pixels.fill(0)
             if not _pixels.auto_write:
-                _pixels.write()
+                _pixels.show()
 
             return JSONResponse(request, {"success": True, "strip_id": strip_id})
 
@@ -386,7 +387,7 @@ class RGBLedServer:
                 if "blank_pixels" in req_data.keys():
                     if req_data["blank_pixels"] is True:
                         self.context["strips"][strip_id].fill(0x0)
-                        self.context["strips"][strip_id].write()
+                        self.context["strips"][strip_id].show()
 
                 # if self.context['mode'] != 'pixels':
                 #     self.context['mode'] = 'pixels'
@@ -453,8 +454,8 @@ class RGBLedServer:
 
                 return JSONResponse(request, {"success": True, "pixels": _strip_colors})
 
-        @self.server.route("/write/<strip_id>", [POST], append_slash=True)
-        def write(request: Request, strip_id):
+        @self.server.route("/show/<strip_id>", [POST], append_slash=True)
+        def show(request: Request, strip_id):
             if self.auths is not None:
                 require_authentication(request, self.auths)
             if strip_id not in self.context["strips"]:
@@ -463,7 +464,7 @@ class RGBLedServer:
                     {"success": False, "error": f"Strip {strip_id} is not initialized"},
                     status=BAD_REQUEST_400,
                 )
-            self.context["strips"][strip_id].write()
+            self.context["strips"][strip_id].show()
             return JSONResponse(request, {"success": True})
 
         @self.server.route("/fill/<strip_id>", [POST], append_slash=True)
@@ -611,7 +612,18 @@ class RGBLedServer:
                 strip_id
             ].auto_write
 
-            anim_constructor = import_animation_contructor(req_data["animation"])
+            try:
+                anim_constructor = import_animation_contructor(req_data["animation"])
+            except ImportError as e:
+                return JSONResponse(
+                    request,
+                    {
+                        "success": False,
+                        "error": f"ImportError attempting to import animation",
+                    },
+                    status=INTERNAL_SERVER_ERROR_500,
+                )
+
             if anim_constructor is None:
                 return JSONResponse(
                     request,
@@ -690,7 +702,7 @@ class RGBLedServer:
                 setattr(
                     self.context["animations"][animation_id],
                     req_data["name"],
-                    req_data["value"],
+                    req_data["value"] if req_data["name"] != "color" else convert_color_to_num(req_data["value"]),
                 )
             else:
                 return JSONResponse(
