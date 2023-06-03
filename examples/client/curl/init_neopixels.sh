@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 Tim C
+#
+# SPDX-License-Identifier: MIT
 curl -X POST --location "http://192.168.1.227/init/neopixels/" \
     -H "Authorization: Bearer cIgw2mX7Ditmxu2i8kD0EaeARLbsKnPmAwbxDc7gWDk" \
     -d @- << EOF

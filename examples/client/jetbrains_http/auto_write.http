@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 Tim C
+#
+# SPDX-License-Identifier: MIT
+POST http://192.168.1.102/auto_write/D6/
+
+{
+"auto_write": true
+}
+###
+GET http://192.168.1.102/auto_write/D6/

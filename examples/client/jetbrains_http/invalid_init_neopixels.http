@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 Tim C
+#
+# SPDX-License-Identifier: MIT
+POST http://192.168.1.102/init/neopixels/
+
+{
+  "pin" : "D6",
+  "pixel_count": 32,
+  "kwargs":{
+    "brightness": 0.01,
+    "bad_argument": "Hello?"
+    "bpp": 3,
+    "auto_write": true
+  }
+}

@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 Tim C
+#
+# SPDX-License-Identifier: MIT
+
+# GET http://192.168.1.102/pixels/D6/
+
+POST http://192.168.1.102/pixels/D9D10/
+
+{
+  "pixels": {
+    "0": "0xff0000",
+    "1": "0x00ff00"
+    "2": "0xff00ff"
+  }
+}

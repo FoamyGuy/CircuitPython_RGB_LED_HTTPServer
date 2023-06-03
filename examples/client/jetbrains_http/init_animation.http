@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 Tim C
+#
+# SPDX-License-Identifier: MIT
+POST http://192.168.1.102/init/animation/
+Authorization: Bearer cIgw2mX7Ditmxu2i8kD0EaeARLbsKnPmAwbxDc7gWDk
+
+#{
+#  "strip_id" : "D6",
+#  "animation_id": "blink_D6_blue",
+#  "animation": "blink",
+#  "kwargs":{
+#    "speed": 0.25,
+#
+#    "color" : "0x0000ff"
+#  }
+#}
+
+{
+  "strip_id" : "NEOPIXEL",
+  "animation_id": "blink_builtin",
+  "animation": "blink",
+  "kwargs":{
+    "speed": 0.25,
+
+    "color" : "0x0000ff"
+  }
+}

@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 Tim C
+#
+# SPDX-License-Identifier: MIT
+POST http://192.168.1.102/init/dotstars/
+
+{
+  "clock_pin" : "D9",
+  "data_pin" : "MOSI",
+  "pixel_count": 30,
+  "kwargs":{
+    "brightness": 0.1,
+    "auto_write": true
+  }
+}

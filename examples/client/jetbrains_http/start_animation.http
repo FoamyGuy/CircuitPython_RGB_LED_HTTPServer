@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 Tim C
+#
+# SPDX-License-Identifier: MIT
+
+#POST http://192.168.1.102/start/animation/blink_D6_blue/
+#Authorization: Bearer cIgw2mX7Ditmxu2i8kD0EaeARLbsKnPmAwbxDc7gWDk
+
+POST http://192.168.1.102/start/animation/D6_anim/
+Authorization: Bearer cIgw2mX7Ditmxu2i8kD0EaeARLbsKnPmAwbxDc7gWDk

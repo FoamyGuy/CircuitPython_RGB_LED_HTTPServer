@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 Tim C
+#
+# SPDX-License-Identifier: MIT
+POST http://192.168.1.102/init/neopixels/
+
+{
+"pin" : "D6",
+"pixel_count": 32
+}
+###
+POST http://192.168.1.102/pixels/D6/
+
+{
+  "pixels": {
+    "21": [255, 0, 255],
+    "8": "0xff0000"
+  }
+}
+###
+GET http://192.168.1.102/pixels/D6/?color_type=hex

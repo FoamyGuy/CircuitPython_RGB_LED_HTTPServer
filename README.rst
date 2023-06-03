@@ -7,7 +7,6 @@ Introduction
     :alt: Documentation Status
 
 
-
 .. image:: https://img.shields.io/discord/327254708534116352.svg
     :target: https://adafru.it/discord
     :alt: Discord
@@ -24,6 +23,8 @@ Introduction
 
 Control Neopixels or Dotstars over the network with an HTTP API that runs in CircuitPython.
 
+`API Documentation <API_DOC.rst>`_
+==================================
 
 Dependencies
 =============

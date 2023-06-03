@@ -6,3 +6,5 @@
 
 .. automodule:: rgb_led_httpserver
     :members:
+
+.. include:: ../API_DOC.rst
