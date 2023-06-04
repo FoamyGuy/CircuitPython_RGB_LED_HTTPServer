@@ -1,0 +1,11 @@
+{
+    "init_neopixels": [
+        {
+            "pin": "D6",
+            "pixel_count": 32,
+            "kwargs":{
+                "brightness": 0.01
+            }
+        }
+    ]
+}

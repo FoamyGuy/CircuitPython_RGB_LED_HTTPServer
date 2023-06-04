@@ -156,7 +156,7 @@ class RGBLedServer:
     """
 
     # pylint: disable=too-many-statements
-    def __init__(self):
+    def __init__(self, startup_actions: dict = None):
         self.pool = socketpool.SocketPool(wifi.radio)
         self.server = Server(self.pool, None, debug=True)
         self.auths = None
@@ -185,6 +185,9 @@ class RGBLedServer:
                 # animation_id : strip_id
             },
         }
+
+        if startup_actions:
+            self._process_startup_actions(startup_actions)
 
         # start = time.monotonic()
 
@@ -244,54 +247,21 @@ class RGBLedServer:
                 return error_resp_or_req_data
             req_data = error_resp_or_req_data
 
-            if not hasattr(board, req_data["pin"]):
-                return JSONResponse(
-                    request,
-                    {"success": False, "error": f"Invalid Pin: {req_data['pin']}"},
-                    status=BAD_REQUEST_400,
-                )
-
-            strip_id = None
-            if "id" not in req_data:
-                strip_id = req_data["pin"]
-            else:
-                strip_id = req_data["id"]
-
-            if strip_id in self.context["strips"]:
-                return JSONResponse(
-                    request,
-                    {
-                        "success": False,
-                        "error": f"Strip {strip_id} is already initialized",
-                    },
-                    status=BAD_REQUEST_400,
-                )
-
-            _kwargs = {}
-            if "kwargs" in req_data.keys():
-                _kwargs = req_data["kwargs"]
-
-            # print(_kwargs)
             try:
-                _pixels = neopixel.NeoPixel(
-                    getattr(board, req_data["pin"]), req_data["pixel_count"], **_kwargs
+                result = self._process_init_neopixels(req_data)
+                return JSONResponse(request, result)
+            except ValueError as value_error:
+                return JSONResponse(
+                    request,
+                    {"success": False, "error": f"ValueError: {value_error}"},
+                    status=BAD_REQUEST_400,
                 )
-
-                self.context["modes"][strip_id] = "pixels"
-
             except TypeError as type_error:
                 return JSONResponse(
                     request,
-                    {"success": False, "error": str(type_error)},
+                    {"success": False, "error": f"TypeError: {type_error}"},
                     status=BAD_REQUEST_400,
                 )
-            self.context["strips"][strip_id] = _pixels
-
-            _pixels.fill(0)
-            if not _pixels.auto_write:
-                _pixels.show()
-
-            return JSONResponse(request, {"success": True, "strip_id": strip_id})
 
         @self.server.route("/init/dotstars", [POST], append_slash=True)
         def init_dotstars(request: Request):
@@ -303,71 +273,21 @@ class RGBLedServer:
                 return error_resp_or_req_data
             req_data = error_resp_or_req_data
 
-            if not hasattr(board, req_data["data_pin"]):
-                return JSONResponse(
-                    request,
-                    {"success": False, "error": f"Invalid Pin: {req_data['data_pin']}"},
-                    status=BAD_REQUEST_400,
-                )
-            if not hasattr(board, req_data["clock_pin"]):
-                return JSONResponse(
-                    request,
-                    {
-                        "success": False,
-                        "error": f"Invalid Pin: {req_data['clock_pin']}",
-                    },
-                    status=BAD_REQUEST_400,
-                )
-
-            strip_id = None
-            if "id" not in req_data:
-                strip_id = req_data["clock_pin"] + req_data["data_pin"]
-            else:
-                strip_id = req_data["id"]
-
-            if strip_id in self.context["strips"]:
-                return JSONResponse(
-                    request,
-                    {
-                        "success": False,
-                        "error": f"Strip {strip_id} is already initialized",
-                    },
-                    status=BAD_REQUEST_400,
-                )
-
-            _kwargs = {}
-            if "kwargs" in req_data.keys():
-                _kwargs = req_data["kwargs"]
-
-            # print(_kwargs)
             try:
-                _pixels = dotstar.DotStar(
-                    getattr(board, req_data["clock_pin"]),
-                    getattr(board, req_data["data_pin"]),
-                    req_data["pixel_count"],
-                    **_kwargs,
+                result = self._process_init_dotstars(req_data)
+                return JSONResponse(request, result)
+            except ValueError as value_error:
+                return JSONResponse(
+                    request,
+                    {"success": False, "error": f"ValueError: {value_error}"},
+                    status=BAD_REQUEST_400,
                 )
-
-                self.context["modes"][strip_id] = "pixels"
             except TypeError as type_error:
                 return JSONResponse(
                     request,
-                    {"success": False, "TypeError: ": str(type_error)},
+                    {"success": False, "error": f"TypeError: {type_error}"},
                     status=BAD_REQUEST_400,
                 )
-            except ValueError as type_error:
-                return JSONResponse(
-                    request,
-                    {"success": False, "Value Error: ": str(type_error)},
-                    status=BAD_REQUEST_400,
-                )
-            self.context["strips"][strip_id] = _pixels
-
-            _pixels.fill(0)
-            if not _pixels.auto_write:
-                _pixels.show()
-
-            return JSONResponse(request, {"success": True, "strip_id": strip_id})
 
         # pylint: disable=inconsistent-return-statements
         @self.server.route("/pixels/<strip_id>", [POST, GET], append_slash=True)
@@ -582,106 +502,26 @@ class RGBLedServer:
                 return error_resp_or_req_data
             req_data = error_resp_or_req_data
 
-            strip_id = req_data["strip_id"]
-            if req_data["strip_id"] not in self.context["strips"]:
-                return JSONResponse(
-                    request,
-                    {"success": False, "error": f"Strip {strip_id} is not initialized"},
-                    status=BAD_REQUEST_400,
-                )
-
-            if req_data["animation"] not in ANIMATION_CLASSES:
-                return JSONResponse(
-                    request,
-                    {
-                        "success": False,
-                        "error": f"Animation {req_data['animation']} is unknown.",
-                    },
-                    status=BAD_REQUEST_400,
-                )
-
-            if req_data["animation_id"] in self.context["animations"]:
-                return JSONResponse(
-                    request,
-                    {
-                        "success": False,
-                        "error": f"Animation {req_data['animation_id']} already exists.",
-                    },
-                    status=BAD_REQUEST_400,
-                )
-
-            _kwargs = {}
-            if "kwargs" in req_data.keys():
-                _kwargs = req_data["kwargs"]
-
-            # if "color" not in _kwargs:
-            #     return JSONResponse(request, {"success": False, "error": f"Missing required argument color"},
-            #                         status=BAD_REQUEST_400)
-
-            if "color" in _kwargs.keys():
-                _kwargs["color"] = convert_color_to_num(_kwargs["color"])
-            if "colors" in _kwargs.keys():
-                _kwargs["colors"] = convert_color_list(_kwargs["colors"])
-
-            animation_id = req_data["animation_id"]
-
-            self.context["old_auto_writes"][strip_id] = self.context["strips"][
-                strip_id
-            ].auto_write
-
             try:
-                anim_constructor = import_animation_contructor(req_data["animation"])
-            except ImportError:
+                result = self._process_init_animation(req_data)
+                return JSONResponse(request, result)
+            except ValueError as value_error:
                 return JSONResponse(
                     request,
-                    {
-                        "success": False,
-                        "error": "ImportError attempting to import animation",
-                    },
-                    status=INTERNAL_SERVER_ERROR_500,
-                )
-
-            if anim_constructor is None:
-                return JSONResponse(
-                    request,
-                    {
-                        "success": False,
-                        "error": f"Invalid animation: {req_data['animation']}",
-                    },
+                    {"success": False, "error": f"ValueError: {value_error}"},
                     status=BAD_REQUEST_400,
                 )
-
-            try:
-                self.context["animations"][animation_id] = anim_constructor(
-                    self.context["strips"][strip_id], **_kwargs
-                )
-
-                self.context["animation_strip_map"][req_data["animation_id"]] = strip_id
-
-                # print(self.context["animations"][req_data["animation_id"]])
-
-                if "start" in req_data.keys():
-                    if req_data["start"]:
-                        self.context["current_animations"][
-                            self.context["animation_strip_map"][animation_id]
-                        ] = animation_id
-                        # self.context['mode'] = 'animation'
-                        self.context["modes"][
-                            self.context["animation_strip_map"][animation_id]
-                        ] = "animation"
-
-                return JSONResponse(
-                    request, {"success": True, "animation_id": req_data["animation_id"]}
-                )
-
             except TypeError as type_error:
                 return JSONResponse(
                     request,
-                    {
-                        "success": False,
-                        "error": f"TypeError initializing the animation: {str(type_error)}",
-                    },
+                    {"success": False, "error": f"TypeError: {type_error}"},
                     status=BAD_REQUEST_400,
+                )
+            except ImportError as import_error:
+                return JSONResponse(
+                    request,
+                    {"success": False, "error": f"ImportError: {import_error}"},
+                    status=INTERNAL_SERVER_ERROR_500,
                 )
 
         @self.server.route("/start/animation/<animation_id>", [POST], append_slash=True)
@@ -753,6 +593,193 @@ class RGBLedServer:
             return JSONResponse(request, {"success": True})
 
         self.server.start(str(wifi.radio.ipv4_address))
+
+    def _process_init_neopixels(self, req_data_obj):
+        if not hasattr(board, req_data_obj["pin"]):
+            raise ValueError(f"Invalid Pin: {req_data_obj['pin']}")
+
+        strip_id = None
+        if "id" not in req_data_obj:
+            strip_id = req_data_obj["pin"]
+        else:
+            strip_id = req_data_obj["id"]
+
+        if strip_id in self.context["strips"]:
+            raise ValueError(f"Strip {strip_id} is already initialized")
+
+        _kwargs = {}
+        if "kwargs" in req_data_obj.keys():
+            _kwargs = req_data_obj["kwargs"]
+
+        # print(_kwargs)
+        try:
+            _pixels = neopixel.NeoPixel(
+                getattr(board, req_data_obj["pin"]),
+                req_data_obj["pixel_count"],
+                **_kwargs,
+            )
+
+            self.context["modes"][strip_id] = "pixels"
+
+            self.context["strips"][strip_id] = _pixels
+
+            _pixels.fill(0)
+            if not _pixels.auto_write:
+                _pixels.show()
+
+        except TypeError as type_error:
+            raise type_error
+
+        return {"success": True, "strip_id": strip_id}
+
+    def _process_init_dotstars(self, req_data_obj):
+        if not hasattr(board, req_data_obj["data_pin"]):
+            raise ValueError(f"Invalid Pin: {req_data_obj['data_pin']}")
+
+        if not hasattr(board, req_data_obj["clock_pin"]):
+            raise ValueError(f"Invalid Pin: {req_data_obj['clock_pin']}")
+
+        strip_id = None
+        if "id" not in req_data_obj:
+            strip_id = req_data_obj["clock_pin"] + req_data_obj["data_pin"]
+        else:
+            strip_id = req_data_obj["id"]
+
+        if strip_id in self.context["strips"]:
+            raise ValueError(f"Strip {strip_id} is already initialized")
+
+        _kwargs = {}
+        if "kwargs" in req_data_obj.keys():
+            _kwargs = req_data_obj["kwargs"]
+
+        # print(_kwargs)
+        try:
+            _pixels = dotstar.DotStar(
+                getattr(board, req_data_obj["clock_pin"]),
+                getattr(board, req_data_obj["data_pin"]),
+                req_data_obj["pixel_count"],
+                **_kwargs,
+            )
+
+            self.context["modes"][strip_id] = "pixels"
+
+            self.context["strips"][strip_id] = _pixels
+
+            _pixels.fill(0)
+            if not _pixels.auto_write:
+                _pixels.show()
+
+            return {"success": True, "strip_id": strip_id}
+
+        except TypeError as type_error:
+            raise type_error
+
+        except ValueError as value_error:
+            raise value_error
+
+    def _process_init_animation(self, req_data_obj):
+        strip_id = req_data_obj["strip_id"]
+        if req_data_obj["strip_id"] not in self.context["strips"]:
+            raise ValueError(f"Strip {strip_id} is not initialized")
+
+        if req_data_obj["animation"] not in ANIMATION_CLASSES:
+            raise ValueError(f"Animation {req_data_obj['animation']} is unknown.")
+
+        if req_data_obj["animation_id"] in self.context["animations"]:
+            raise ValueError(
+                f"Animation {req_data_obj['animation_id']} already exists."
+            )
+
+        _kwargs = {}
+        if "kwargs" in req_data_obj.keys():
+            _kwargs = req_data_obj["kwargs"]
+
+        if "color" in _kwargs.keys():
+            _kwargs["color"] = convert_color_to_num(_kwargs["color"])
+        if "colors" in _kwargs.keys():
+            _kwargs["colors"] = convert_color_list(_kwargs["colors"])
+
+        animation_id = req_data_obj["animation_id"]
+
+        self.context["old_auto_writes"][strip_id] = self.context["strips"][
+            strip_id
+        ].auto_write
+
+        try:
+            anim_constructor = import_animation_contructor(req_data_obj["animation"])
+        except ImportError as import_error:
+            raise import_error
+
+        if anim_constructor is None:
+            raise ValueError(f"Invalid animation: {req_data_obj['animation']}")
+
+        try:
+            self.context["animations"][animation_id] = anim_constructor(
+                self.context["strips"][strip_id], **_kwargs
+            )
+
+            self.context["animation_strip_map"][req_data_obj["animation_id"]] = strip_id
+
+            # print(self.context["animations"][req_data["animation_id"]])
+
+            if "start" in req_data_obj.keys():
+                if req_data_obj["start"]:
+                    self.context["current_animations"][
+                        self.context["animation_strip_map"][animation_id]
+                    ] = animation_id
+                    # self.context['mode'] = 'animation'
+                    self.context["modes"][
+                        self.context["animation_strip_map"][animation_id]
+                    ] = "animation"
+
+            return {"success": True, "animation_id": req_data_obj["animation_id"]}
+
+        except TypeError as type_error:
+            raise type_error
+
+    def _process_startup_actions(self, actions_obj):
+        """
+        Optionally initialize rgb strips and animations automatically
+        when the server is initialized.
+
+        :param actions_obj: A dictionary of start actions to perform.
+            valid keys are "init_neopixels", "init_dotstars", "init_animations"
+            all others will be ignored.
+        :return: None
+        """
+
+        if "init_neopixels" in actions_obj.keys():
+            for _init_pixels_obj in actions_obj["init_neopixels"]:
+                try:
+                    self._process_init_neopixels(_init_pixels_obj)
+                except ValueError as value_error:
+                    print(f"ValueError during startup action: {value_error}")
+                    print(f"action: {_init_pixels_obj}")
+                except TypeError as type_error:
+                    print(f"TypeError during startup action: {type_error}")
+                    print(f"action: {_init_pixels_obj}")
+
+        if "init_dotstars" in actions_obj.keys():
+            for _init_dotstars_obj in actions_obj["init_dotstars"]:
+                try:
+                    self._process_init_dotstars(_init_dotstars_obj)
+                except ValueError as value_error:
+                    print(f"ValueError during startup action: {value_error}")
+                    print(f"action: {_init_dotstars_obj}")
+                except TypeError as type_error:
+                    print(f"TypeError during startup action: {type_error}")
+                    print(f"action: {_init_dotstars_obj}")
+
+        if "init_animations" in actions_obj.keys():
+            for _init_animation_obj in actions_obj["init_animations"]:
+                try:
+                    self._process_init_animation(_init_animation_obj)
+                except ValueError as value_error:
+                    print(f"ValueError during startup action: {value_error}")
+                    print(f"action: {_init_animation_obj}")
+                except TypeError as type_error:
+                    print(f"TypeError during startup action: {type_error}")
+                    print(f"action: {_init_animation_obj}")
 
     def animate(self):
         """
