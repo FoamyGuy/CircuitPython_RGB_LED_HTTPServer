@@ -95,6 +95,12 @@ def rgb_to_hex(tuple_color: Tuple[int, int, int]) -> int:
 
 
 def convert_color_list(color_str_list: list):
+    """
+    Convert a list of string colors into numbers ready to be passed to the pixel object.
+
+    :param color_str_list List[str...]: List of strings representing hex colors
+    :return List[int]: The List of converted colors ready to be passed to pixel object
+    """
     output_list = []
     for color_str in color_str_list:
         output_list.append(convert_color_to_num(color_str))
@@ -625,12 +631,12 @@ class RGBLedServer:
 
             try:
                 anim_constructor = import_animation_contructor(req_data["animation"])
-            except ImportError as e:
+            except ImportError:
                 return JSONResponse(
                     request,
                     {
                         "success": False,
-                        "error": f"ImportError attempting to import animation",
+                        "error": "ImportError attempting to import animation",
                     },
                     status=INTERNAL_SERVER_ERROR_500,
                 )
@@ -668,12 +674,12 @@ class RGBLedServer:
                     request, {"success": True, "animation_id": req_data["animation_id"]}
                 )
 
-            except TypeError as e:
+            except TypeError as type_error:
                 return JSONResponse(
                     request,
                     {
                         "success": False,
-                        "error": f"TypeError initializing the animation: {str(e)}",
+                        "error": f"TypeError initializing the animation: {str(type_error)}",
                     },
                     status=BAD_REQUEST_400,
                 )
